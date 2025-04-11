@@ -645,7 +645,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ba09889a0c8a50d4ca034bda3689c9fc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  offset: {x: 0, y: -5, z: -10}
+  offset: {x: 0, y: 0, z: -15}
   smoothSpeed: 0.125
   useConstraints: 1
   xConstraint: {x: -100, y: 100}
@@ -1133,9 +1133,9 @@ MonoBehaviour:
   maxX: 50
   minY: -50
   maxY: 50
-  groundY: -20
+  groundY: 0
   groundWidth: 200
-  groundDepth: 1
+  groundDepth: 10
   jumpForce: 8
   gravityScale: 2
   airMovementMultiplier: 0.5
