@@ -1,448 +1,154 @@
-using System.Collections.Generic;
 using UnityEngine;
-using Matrix4x4 = UnityEngine.Matrix4x4;
-using Quaternion = UnityEngine.Quaternion;
-using Random = UnityEngine.Random;
-using Vector3 = UnityEngine.Vector3;
+using System.Collections.Generic;
 
-// Enhanced MeshGenerator with collision, player control, and camera following
+[RequireComponent(typeof(MeshFilter), typeof(MeshRenderer), typeof(Rigidbody2D))]
 public class EnhancedMeshGenerator : MonoBehaviour
 {
-    [Header("Mesh Generation Settings")]
-    [Tooltip("Number of cube instances to generate")]
-    public int instanceCount = 100;
-    [Tooltip("Width of each cube unit")]
-    public float width = 1f;
-    [Tooltip("Height of each cube unit")]
-    public float height = 1f;
-    [Tooltip("Depth of each cube unit")]
-    public float depth = 1f;
-    private Mesh cubeMesh;
+    [Header("Box Settings")]
+    public List<Vector3> boxPositions;
+    public Vector3 boxSize = Vector3.one;
+    public Material material;
 
-    [Header("Collision System")]
-    [Tooltip("List of transformation matrices for all objects")]
-    private List<Matrix4x4> matrices = new List<Matrix4x4>();
-    [Tooltip("Collider IDs from CollisionManager")]
-    private List<int> colliderIds = new List<int>();
-
-    [Header("Player Movement Settings")]
-    [Tooltip("Base movement speed in units/second")]
-    public float movementSpeed = 5f;
-    [Tooltip("Gravity force applied when airborne")]
-    public float gravity = 9.8f;
-
-    [Header("Player State")]
-    [Tooltip("Current player velocity vector")]
-    private Vector3 playerVelocity = Vector3.zero;
-    [Tooltip("Is the player touching the ground?")]
-    private bool isGrounded = false;
-    [Tooltip("Player's collider ID in CollisionManager")]
-    private int playerID = -1;
-
-// For other scripts
-    public int GetPlayerID() => playerID;
-    public List<Matrix4x4> GetMatrices() => matrices;
-    public List<int> GetColliderIds() => colliderIds;
-    public Vector3 GetPlayerSize() => new Vector3(width, height, depth);
-    
-    [Header("Camera Reference")] 
-    public PlayerCameraFollow cameraFollow;
-    
-    [Header("Z-position Constant for All Boxes")]
-    public float constantZPosition = 0f;
-    
-    [Header("Range for Random Generation")]
-    public float minX = -50f;
-    public float maxX = 50f;
-    public float minY = -50f;
-    public float maxY = 50f;
-    
-    [Header("Ground Plane Settings")]
-    public float groundY = -20f;
-    public float groundWidth = 200f;
-    public float groundDepth = 200f;
-    
-    [Header("Jumping Settings")]
-    public float jumpForce = 8f;
-    private bool canJump = true;
-    public float gravityScale = 2f;
+    [Header("Player Settings")]
+    public float moveSpeed = 5f;
+    public float jumpForce = 10f;
     public float airMovementMultiplier = 0.5f;
+    public float jumpCheckDistance = 0.1f;
+    public LayerMask groundLayer;
+    public Transform groundCheck;
+    public Camera mainCamera;
 
     [Header("Fireball Settings")]
     public GameObject fireballPrefab;
-    private bool canShootFireballs = false;
-    private float lastFireballTime = 0f;
-    public float fireballCooldown = 0.5f;
-    
-    public void EnableFireballShooting()
-    {
-        canShootFireballs = true;
-    }
+    public Transform fireballSpawnPoint;
+    public float fireballSpeed = 10f;
+    public bool canShootFireballs = true;
 
-    [Header("Rendering Settings")]
-    public Material material;
+    private Mesh mesh;
+    private List<Vector3> vertices = new List<Vector3>();
+    private List<int> triangles = new List<int>();
+    private Rigidbody2D rb;
+    private bool isGrounded;
+    private Vector2 movement;
+
+    private Matrix4x4[] matrices; // Reusable array for box rendering
 
     void Start()
     {
-        // Find or create camera if not assigned
-        SetupCamera();
-        
-        // Create the cube mesh
-        CreateCubeMesh();
-        
-        // Create player box
-        CreatePlayer();
-        
-        // Create ground
-        CreateGround();
-        
-        // Set up random boxes
-        GenerateRandomBoxes();
-    }
-    
-    void SetupCamera()
-    {
-        if (cameraFollow == null)
-        {
-            // Try to find existing camera
-            Camera mainCamera = Camera.main;
-            if (mainCamera != null)
-            {
-                // Check if it already has our script
-                cameraFollow = mainCamera.GetComponent<PlayerCameraFollow>();
-                if (cameraFollow == null)
-                {
-                    // Add our script to existing camera
-                    cameraFollow = mainCamera.gameObject.AddComponent<PlayerCameraFollow>();
-                }
-            }
-            else
-            {
-                // No main camera found, create a new one
-                GameObject cameraObj = new GameObject("PlayerCamera");
-                Camera cam = cameraObj.AddComponent<Camera>();
-                cameraFollow = cameraObj.AddComponent<PlayerCameraFollow>();
-                
-                // Set this as the main camera
-                cam.tag = "MainCamera";
-            }
-            
-            // Configure default camera settings
-            cameraFollow.offset = new Vector3(0, 0, -15);
-            cameraFollow.smoothSpeed = 0.1f;
-        }
-    }
+        rb = GetComponent<Rigidbody2D>();
+        GetComponent<MeshRenderer>().material = material;
 
-    void CreateCubeMesh()
-    {
-        cubeMesh = new Mesh();
-        
-        // Create 8 vertices for the cube (corners)
-        Vector3[] vertices = new Vector3[8]
-        {
-            // Bottom face vertices
-            new Vector3(0, 0, 0),       // Bottom front left - 0
-            new Vector3(width, 0, 0),   // Bottom front right - 1
-            new Vector3(width, 0, depth),// Bottom back right - 2
-            new Vector3(0, 0, depth),   // Bottom back left - 3
-            
-            // Top face vertices
-                       new Vector3(0, height, 0),       // Top front left - 4
-            new Vector3(width, height, 0),   // Top front right - 5
-            new Vector3(width, height, depth),// Top back right - 6
-            new Vector3(0, height, depth)    // Top back left - 7
-        };
-        
-        // Triangles for the 6 faces (2 triangles per face)
-        int[] triangles = new int[36]
-        {
-            // Front face triangles (facing -Z)
-            0, 4, 1,
-            1, 4, 5,
-            
-            // Back face triangles (facing +Z)
-            2, 6, 3,
-            3, 6, 7,
-            
-            // Left face triangles (facing -X)
-            0, 3, 4,
-            4, 3, 7,
-            
-            // Right face triangles (facing +X)
-            1, 5, 2,
-            2, 5, 6,
-            
-            // Bottom face triangles (facing -Y)
-            0, 1, 3,
-            3, 1, 2,
-            
-            // Top face triangles (facing +Y)
-            4, 7, 5,
-            5, 7, 6
-        };
-        
-        Vector2[] uvs = new Vector2[8];
-        for (int i = 0; i < 8; i++)
-        {
-            uvs[i] = new Vector2(vertices[i].x / width, vertices[i].z / depth);
-        }
+        mesh = new Mesh();
+        GetComponent<MeshFilter>().mesh = mesh;
 
-        cubeMesh.vertices = vertices;
-        cubeMesh.triangles = triangles;
-        cubeMesh.uv = uvs;
-        cubeMesh.RecalculateNormals();
-        cubeMesh.RecalculateBounds();
-    }
-    
-    void CreatePlayer()
-    {
-        // Create player at a specific position
-        Vector3 playerPosition = new Vector3(0, 10, constantZPosition);
-        Vector3 playerScale = Vector3.one;
-        Quaternion playerRotation = Quaternion.identity;
-        
-        // Register with collision system - properly handle width/height/depth
-        playerID = CollisionManager.Instance.RegisterCollider(
-            playerPosition, 
-            new Vector3(width * playerScale.x, height * playerScale.y, depth * playerScale.z), 
-            true);
-        
-        // Create transformation matrix
-        Matrix4x4 playerMatrix = Matrix4x4.TRS(playerPosition, playerRotation, playerScale);
-        matrices.Add(playerMatrix);
-        colliderIds.Add(playerID);
-        
-        // Update the matrix in collision manager
-        CollisionManager.Instance.UpdateMatrix(playerID, playerMatrix);
-    }
-    
-    void CreateGround()
-    {
-        // Create a large ground plane
-        Vector3 groundPosition = new Vector3(0, groundY, constantZPosition);
-        Vector3 groundScale = new Vector3(groundWidth, 1f, groundDepth);
-        Quaternion groundRotation = Quaternion.identity;
-        
-        // Register with collision system - use actual dimensions
-        int groundID = CollisionManager.Instance.RegisterCollider(
-            groundPosition, 
-            new Vector3(groundWidth, 1f, groundDepth), 
-            false);
-        
-        // Create transformation matrix
-        Matrix4x4 groundMatrix = Matrix4x4.TRS(groundPosition, groundRotation, groundScale);
-        matrices.Add(groundMatrix);
-        colliderIds.Add(groundID);
-        
-        // Update the matrix in collision manager
-        CollisionManager.Instance.UpdateMatrix(groundID, groundMatrix);
-    }
-    
-    void GenerateRandomBoxes()
-    {
-        // Create random boxes (excluding player and ground)
-        for (int i = 0; i < instanceCount - 2; i++)
-        {
-            // Random position (constant Z)
-            Vector3 position = new Vector3(
-                Random.Range(minX, maxX),
-                Random.Range(minY, maxY),
-                constantZPosition
-            );
-            
-            // Random rotation only around Z axis
-            Quaternion rotation = Quaternion.Euler(0, 0, Random.Range(0f, 360f));
-            
-            // Random non-uniform scale - different for each dimension
-            Vector3 scale = new Vector3(
-                Random.Range(0.5f, 3f),
-                Random.Range(0.5f, 3f),
-                Random.Range(0.5f, 3f)
-            );
-            
-            // Register with collision system - properly handle rectangular shapes
-            int id = CollisionManager.Instance.RegisterCollider(
-                position, 
-                new Vector3(width * scale.x, height * scale.y, depth * scale.z), 
-                false);
-            
-            //             // Create transformation matrix
-            Matrix4x4 boxMatrix = Matrix4x4.TRS(position, rotation, scale);
-            matrices.Add(boxMatrix);
-            colliderIds.Add(id);
-            
-            // Update the matrix in collision manager
-            CollisionManager.Instance.UpdateMatrix(id, boxMatrix);
-        }
+        UpdateMesh();
+        RenderBoxes();
     }
 
     void Update()
     {
-        UpdatePlayer();
-        RenderBoxes();
-    }
-    
-    void UpdatePlayer()
-    {
-        if (playerID == -1) return;
-        
-        // Get current player matrix
-        Matrix4x4 playerMatrix = matrices[colliderIds.IndexOf(playerID)];
-        DecomposeMatrix(playerMatrix, out Vector3 pos, out Quaternion rot, out Vector3 scale);
-        
-        // Reset velocity.y when grounded
-        if (isGrounded)
+        // Player movement input
+        movement.x = Input.GetAxis("Horizontal");
+
+        // Jump
+        isGrounded = Physics2D.Raycast(groundCheck.position, Vector2.down, jumpCheckDistance, groundLayer);
+        if (Input.GetButtonDown("Jump") && isGrounded)
         {
-            playerVelocity.y = 0;
-            canJump = true;
+            rb.velocity = new Vector2(rb.velocity.x, jumpForce);
         }
-        
-        // Apply gravity with scaling for slower descent
-        if (!isGrounded)
+
+        // Fireball shooting
+        if (canShootFireballs && Input.GetKeyDown(KeyCode.F))
         {
-            playerVelocity.y -= gravity * gravityScale * Time.deltaTime;
+            ShootFireball();
         }
-        
-        // Get horizontal input
-        float horizontal = 0;
-        if (Input.GetKey(KeyCode.A)) horizontal -= 1;
-        if (Input.GetKey(KeyCode.D)) horizontal += 1;
-        
-        // Apply movement speed multiplier when in air
-        float currentSpeed = isGrounded ? movementSpeed : movementSpeed * airMovementMultiplier;
-        
-        // Jump input - immediate strong upward force
-        if (Input.GetKeyDown(KeyCode.Space) && canJump)
+
+        // Camera follow
+        if (mainCamera)
         {
-            playerVelocity.y = jumpForce;
-            isGrounded = false;
-            canJump = false;
-        }
-        
-        // Update player position based on input
-        Vector3 newPos = pos;
-        newPos.x += horizontal * currentSpeed * Time.deltaTime;
-        
-        // Apply horizontal movement if no collision
-        if (!CheckCollisionAt(playerID, new Vector3(newPos.x, pos.y, pos.z)))
-        {
-            pos.x = newPos.x;
-        }
-        
-        // Apply gravity/vertical movement
-        newPos = pos;
-        newPos.y += playerVelocity.y * Time.deltaTime;
-        
-        // Check for vertical collisions
-        if (CheckCollisionAt(playerID, new Vector3(pos.x, newPos.y, pos.z)))
-        {
-            // We hit something below or above
-            if (playerVelocity.y < 0)
-            {
-                // We hit something below
-                isGrounded = true;
-            }
-            playerVelocity.y = 0;
-        }
-        else
-        {
-            // No collision, apply movement
-            pos.y = newPos.y;
-            isGrounded = false;
-        }
-        
-        // Update matrix
-        Matrix4x4 newMatrix = Matrix4x4.TRS(pos, rot, scale);
-        matrices[colliderIds.IndexOf(playerID)] = newMatrix;
-        
-        // Update collider position
-        CollisionManager.Instance.UpdateCollider(playerID, pos, new Vector3(width * scale.x, height * scale.y, depth * scale.z));
-        CollisionManager.Instance.UpdateMatrix(playerID, newMatrix);
-        
-        // Update camera to follow player
-        if (cameraFollow != null)
-        {
-            cameraFollow.SetPlayerPosition(pos);
-        }
-    }
-        
-    bool CheckCollisionAt(int id, Vector3 position)
-    {
-        return CollisionManager.Instance.CheckCollision(id, position, out _);
-    }
-    
-    void RenderBoxes()
-    {
-        if (material == null) return;  // Safety check
-        
-        // Convert list to array for Graphics.DrawMeshInstanced
-        Matrix4x4[] matrixArray = matrices.ToArray();
-        
-        // Draw instanced meshes in batches of 1023 (GPU limit)
-        for (int i = 0; i < matrixArray.Length; i += 1023) {
-            int batchSize = Mathf.Min(1023, matrixArray.Length - i);
-            Matrix4x4[] batchMatrices = new Matrix4x4[batchSize];
-            System.Array.Copy(matrixArray, i, batchMatrices, 0, batchSize);
-            Graphics.DrawMeshInstanced(cubeMesh, 0, material, batchMatrices, batchSize);
+            Vector3 cameraPos = mainCamera.transform.position;
+            cameraPos.x = transform.position.x;
+            mainCamera.transform.position = cameraPos;
         }
     }
 
-    void DecomposeMatrix(Matrix4x4 matrix, out Vector3 position, out Quaternion rotation, out Vector3 scale)
+    void FixedUpdate()
     {
-        position = matrix.GetPosition();
-        rotation = matrix.rotation;
-        scale = matrix.lossyScale;
+        // Handle movement (different control in air vs on ground)
+        float control = isGrounded ? 1f : airMovementMultiplier;
+        rb.velocity = new Vector2(movement.x * moveSpeed * control, rb.velocity.y);
     }
-    
-    // Add a new random box at runtime (can be called from button or other trigger)
-    public void AddRandomBox()
+
+    void UpdateMesh()
     {
-        Vector3 position = new Vector3(
-            Random.Range(minX, maxX),
-            Random.Range(minY, maxY),
-            constantZPosition
-        );
-        
-        Quaternion rotation = Quaternion.Euler(0, 0, Random.Range(0f, 360f));
-        
-        // Random non-uniform scale - different for each dimension
-        Vector3 scale = new Vector3(
-            Random.Range(0.5f, 3f),
-            Random.Range(0.5f, 3f),
-            Random.Range(0.5f, 3f)
-        );
-        
-        // Register with collision system - properly handle rectangular shapes
-        int id = CollisionManager.Instance.RegisterCollider(
-            position, 
-            new Vector3(width * scale.x, height * scale.y, depth * scale.z), 
-            false);
-        
-        Matrix4x4 boxMatrix = Matrix4x4.TRS(position, rotation, scale);
-        matrices.Add(boxMatrix);
-        colliderIds.Add(id);
-        
-        CollisionManager.Instance.UpdateMatrix(id, boxMatrix);
+        mesh.Clear();
+        vertices.Clear();
+        triangles.Clear();
+
+        for (int i = 0; i < boxPositions.Count; i++)
+        {
+            AddBox(boxPositions[i]);
+        }
+
+        mesh.vertices = vertices.ToArray();
+        mesh.triangles = triangles.ToArray();
+        mesh.RecalculateNormals();
+    }
+
+    void AddBox(Vector3 center)
+    {
+        Vector3 half = boxSize / 2;
+
+        // Box corners
+        Vector3 topLeft = center + new Vector3(-half.x, half.y);
+        Vector3 topRight = center + new Vector3(half.x, half.y);
+        Vector3 bottomLeft = center + new Vector3(-half.x, -half.y);
+        Vector3 bottomRight = center + new Vector3(half.x, -half.y);
+
+        int start = vertices.Count;
+
+        vertices.Add(bottomLeft);  // 0
+        vertices.Add(topLeft);     // 1
+        vertices.Add(topRight);    // 2
+        vertices.Add(bottomRight); // 3
+
+        // Two triangles (0-1-2 and 0-2-3)
+        triangles.Add(start + 0);
+        triangles.Add(start + 1);
+        triangles.Add(start + 2);
+        triangles.Add(start + 0);
+        triangles.Add(start + 2);
+        triangles.Add(start + 3);
+    }
+
+    void RenderBoxes()
+    {
+        int count = boxPositions.Count;
+
+        if (matrices == null || matrices.Length != count)
+        {
+            matrices = new Matrix4x4[count];
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            matrices[i] = Matrix4x4.TRS(boxPositions[i], Quaternion.identity, boxSize);
+        }
+
+        Graphics.DrawMeshInstanced(mesh, 0, material, matrices);
     }
 
     void ShootFireball()
     {
-        if (Time.time - lastFireballTime < fireballCooldown) return;
-        
-        lastFireballTime = Time.time;
-        
-        Vector3 playerPos = matrices[colliderIds.IndexOf(playerID)].GetPosition();
-        Vector3 fireDirection = Vector3.right; // Default to right
-        
-        // Get facing direction based on movement input
-        float horizontal = Input.GetAxis("Horizontal");
-        if (Mathf.Abs(horizontal) > 0.1f)
+        if (fireballPrefab && fireballSpawnPoint)
         {
-            fireDirection = new Vector3(Mathf.Sign(horizontal), 0, 0);
+            GameObject fireball = Instantiate(fireballPrefab, fireballSpawnPoint.position, Quaternion.identity);
+            Rigidbody2D rb = fireball.GetComponent<Rigidbody2D>();
+
+            if (rb)
+            {
+                rb.velocity = new Vector2(transform.localScale.x * fireballSpeed, 0f);
+            }
         }
-        
-        GameObject fireballObj = Instantiate(fireballPrefab);
-        Fireball fireball = fireballObj.GetComponent<Fireball>();
-        fireball.Initialize(playerPos + fireDirection * 1.5f, fireDirection);
     }
 }
