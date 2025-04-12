@@ -3,37 +3,34 @@ using System.Collections.Generic;
 
 public class Fireball : MonoBehaviour
 {
-[Header("Movement Settings")]
+    [Header("Movement Settings")]
     [Tooltip("Speed of the fireball in units per second")]
     public float speed = 15f;
+
     [Tooltip("How long the fireball lasts before disappearing")]
     public float lifetime = 2f;
-    [Tooltip("Directional movement vector (auto-set on initialization)")]
+
     private Vector3 direction;
 
     [Header("Combat Settings")]
     [Tooltip("Damage dealt to enemies on hit")]
     public int damage = 1;
-    
+
     [Header("Visual Settings")]
     [Tooltip("Size of the fireball mesh")]
     public float size = 0.5f;
-    [Tooltip("Material for rendering the fireball")]
+
+    [Tooltip("Material used to render the fireball")]
     public Material fireballMaterial;
-    
-    [Header("Collision Settings")]
-    [Tooltip("Collider ID from CollisionManager")]
-    private int colliderId;
 
     [Header("Runtime Variables")]
-    [Tooltip("Time when fireball was spawned")]
     private float spawnTime;
-    [Tooltip("Fireball mesh for rendering")]
     private Mesh fireballMesh;
-    [Tooltip("Transform matrix for rendering")]
     private Matrix4x4 fireballMatrix;
-    [Tooltip("Main camera reference")]
     private Camera mainCamera;
+
+    [Header("Collision Settings")]
+    private int colliderId;
 
     void Awake()
     {
@@ -45,21 +42,21 @@ public class Fireball : MonoBehaviour
     {
         fireballMesh = new Mesh();
         Vector3[] vertices = new Vector3[8];
-        float halfSize = size * 0.5f;
-        
+        float half = size * 0.5f;
+
         // Bottom vertices
-        vertices[0] = new Vector3(-halfSize, -halfSize, -halfSize);
-        vertices[1] = new Vector3(halfSize, -halfSize, -halfSize);
-        vertices[2] = new Vector3(halfSize, -halfSize, halfSize);
-        vertices[3] = new Vector3(-halfSize, -halfSize, halfSize);
-        
+        vertices[0] = new Vector3(-half, -half, -half);
+        vertices[1] = new Vector3(half, -half, -half);
+        vertices[2] = new Vector3(half, -half, half);
+        vertices[3] = new Vector3(-half, -half, half);
+
         // Top vertices
-        vertices[4] = new Vector3(-halfSize, halfSize, -halfSize);
-        vertices[5] = new Vector3(halfSize, halfSize, -halfSize);
-        vertices[6] = new Vector3(halfSize, halfSize, halfSize);
-        vertices[7] = new Vector3(-halfSize, halfSize, halfSize);
-        
-        int[] triangles = new int[36]
+        vertices[4] = new Vector3(-half, half, -half);
+        vertices[5] = new Vector3(half, half, -half);
+        vertices[6] = new Vector3(half, half, half);
+        vertices[7] = new Vector3(-half, half, half);
+
+        int[] triangles = new int[]
         {
             // Bottom
             0, 3, 2, 2, 1, 0,
@@ -74,7 +71,7 @@ public class Fireball : MonoBehaviour
             // Right
             1, 2, 6, 6, 5, 1
         };
-        
+
         fireballMesh.vertices = vertices;
         fireballMesh.triangles = triangles;
         fireballMesh.RecalculateNormals();
@@ -84,21 +81,21 @@ public class Fireball : MonoBehaviour
     {
         spawnTime = Time.time;
         direction = fireDirection.normalized;
-        
-        // Register with collision system
+
+        // Register collider with the collision system
         colliderId = CollisionManager.Instance.RegisterCollider(
-            startPos, 
-            Vector3.one * size, 
-            false);
-        
-        // Set initial position and matrix
+            startPos,
+            Vector3.one * size,
+            false
+        );
+
+        // Set initial transform matrix
         fireballMatrix = Matrix4x4.TRS(startPos, Quaternion.LookRotation(direction), Vector3.one * size);
         CollisionManager.Instance.UpdateMatrix(colliderId, fireballMatrix);
     }
 
     void Update()
     {
-        // Check lifetime
         if (Time.time - spawnTime > lifetime)
         {
             DestroyFireball();
@@ -108,54 +105,53 @@ public class Fireball : MonoBehaviour
         // Move fireball
         Vector3 currentPos = fireballMatrix.GetPosition();
         Vector3 newPos = currentPos + direction * speed * Time.deltaTime;
-        
-        // Update collision and matrix
+
+        // Update matrix
         fireballMatrix = Matrix4x4.TRS(newPos, Quaternion.LookRotation(direction), Vector3.one * size);
-        
-        // Check collisions
+
+        // Check collision
         if (CollisionManager.Instance.CheckCollision(colliderId, newPos, out List<int> collidedIds))
         {
             foreach (int id in collidedIds)
             {
-                // Damage enemies
                 EnemyManager.Instance?.DestroyEnemy(id);
             }
             DestroyFireball();
             return;
         }
 
-        // Update collision system
+        // Update collider in system
         CollisionManager.Instance.UpdateCollider(colliderId, newPos, Vector3.one * size);
         CollisionManager.Instance.UpdateMatrix(colliderId, fireballMatrix);
-        
-        // Render with visibility check using dot product
+
+        // Render fireball
         RenderFireball();
     }
 
     void RenderFireball()
     {
         if (mainCamera == null || fireballMaterial == null) return;
-        
+
         Vector3 fireballPos = fireballMatrix.GetPosition();
-        Vector3 cameraForward = mainCamera.transform.forward;
         Vector3 toFireball = (fireballPos - mainCamera.transform.position).normalized;
-        
-        // Calculate dot product for visibility
-        float dot = Vector3.Dot(cameraForward, toFireball);
-        bool isVisible = dot > 0; // Only render if in front of camera
-        
-        // Scale to zero if not visible
-        Vector3 renderScale = isVisible ? Vector3.one * size : Vector3.zero;
-        Matrix4x4 renderMatrix = Matrix4x4.TRS(fireballPos, Quaternion.LookRotation(direction), renderScale);
-        
-        // Draw the mesh
+        float dot = Vector3.Dot(mainCamera.transform.forward, toFireball);
+
+        // If behind camera, scale to zero
+        Vector3 renderScale = dot > 0 ? Vector3.one * size : Vector3.zero;
+
+        Matrix4x4 renderMatrix = Matrix4x4.TRS(
+            fireballPos,
+            Quaternion.LookRotation(direction),
+            renderScale
+        );
+
         Graphics.DrawMesh(
             fireballMesh,
             renderMatrix,
             fireballMaterial,
-            0, // Default layer
+            0,
             null,
-            0, // Submesh index
+            0,
             null,
             UnityEngine.Rendering.ShadowCastingMode.Off,
             false
