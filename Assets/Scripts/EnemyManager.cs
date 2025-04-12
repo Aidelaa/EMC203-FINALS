@@ -18,6 +18,7 @@ public class EnemyManager : MonoBehaviour
         }
     }
 
+    [Header("Enemy Settings")]
     public Material enemyMaterial;
     public int enemyCount = 5;
     public float enemySize = 1f;
@@ -25,34 +26,33 @@ public class EnemyManager : MonoBehaviour
     public float minMoveDistance = 3f;
     public float maxMoveDistance = 8f;
     public float spawnPadding = 2f;
+
+    [Header("Damage Settings")]
     public int damageToPlayer = 1;
     public float damageCooldown = 1f;
 
     private Mesh enemyMesh;
-    private List<Matrix4x4> enemyMatrices = new List<Matrix4x4>();
-    private List<int> enemyColliderIds = new List<int>();
-    private List<float> moveDirections = new List<float>();
-    private List<float> moveDistances = new List<float>();
-    private List<Vector3> startPositions = new List<Vector3>();
     private float lastDamageTime;
 
-    void Start()
+    private readonly List<Matrix4x4> enemyMatrices = new();
+    private readonly List<int> enemyColliderIds = new();
+    private readonly List<Vector3> startPositions = new();
+
+    private void Start()
     {
         if (enemyMaterial != null)
-        {
             enemyMaterial.enableInstancing = true;
-        }
 
         CreateEnemyMesh();
         SpawnEnemies();
         lastDamageTime = -damageCooldown;
     }
 
-    void CreateEnemyMesh()
+    private void CreateEnemyMesh()
     {
         enemyMesh = new Mesh();
-        
-        Vector3[] vertices = new Vector3[8]
+
+        Vector3[] vertices = new Vector3[]
         {
             new Vector3(0, 0, 0),
             new Vector3(enemySize, 0, 0),
@@ -63,8 +63,8 @@ public class EnemyManager : MonoBehaviour
             new Vector3(enemySize, enemySize, enemySize),
             new Vector3(0, enemySize, enemySize)
         };
-        
-        int[] triangles = new int[36]
+
+        int[] triangles = new int[]
         {
             0, 4, 1, 1, 4, 5,
             2, 6, 3, 3, 6, 7,
@@ -73,16 +73,15 @@ public class EnemyManager : MonoBehaviour
             0, 1, 3, 3, 1, 2,
             4, 7, 5, 5, 7, 6
         };
-        
+
         enemyMesh.vertices = vertices;
         enemyMesh.triangles = triangles;
         enemyMesh.RecalculateNormals();
         enemyMesh.RecalculateBounds();
     }
 
-    void SpawnEnemies()
+    private void SpawnEnemies()
     {
-        // Your existing enemy spawning logic
         for (int i = 0; i < enemyCount; i++)
         {
             Vector3 position = new Vector3(
@@ -91,7 +90,6 @@ public class EnemyManager : MonoBehaviour
                 Random.Range(-10f, 10f)
             );
 
-            // Register with collision system
             int id = CollisionManager.Instance.RegisterCollider(position, Vector3.one * enemySize, false);
             enemyColliderIds.Add(id);
             enemyMatrices.Add(Matrix4x4.TRS(position, Quaternion.identity, Vector3.one * enemySize));
@@ -101,7 +99,6 @@ public class EnemyManager : MonoBehaviour
 
     public void DestroyEnemy(int colliderId)
     {
-        // Logic to destroy the enemy
         int index = enemyColliderIds.IndexOf(colliderId);
         if (index >= 0)
         {
@@ -112,44 +109,41 @@ public class EnemyManager : MonoBehaviour
         }
     }
 
-    void Update()
+    private void Update()
     {
-        // Update enemy positions and check for player collisions
         for (int i = 0; i < enemyColliderIds.Count; i++)
         {
-            // Move enemies in a random direction
             Vector3 currentPosition = enemyMatrices[i].GetPosition();
             float moveDirection = Random.Range(-1f, 1f);
             currentPosition.x += moveDirection * moveSpeed * Time.deltaTime;
 
-            // Check for collisions with the player or other objects
             if (CollisionManager.Instance.CheckCollision(enemyColliderIds[i], currentPosition, out List<int> collidedIds))
             {
                 foreach (int id in collidedIds)
                 {
-                    // Handle collision with player
-                    EnhancedMeshGenerator player = FindObjectOfType<EnhancedMeshGenerator>();
+                    var player = FindObjectOfType<EnhancedMeshGenerator>();
                     if (player != null && id == player.GetPlayerID())
                     {
-                        // Apply damage logic (you'll need to implement this)
-                        Debug.Log("Enemy hit player!");
-                        // Example: player.TakeDamage(damageToPlayer);
+                        if (Time.time - lastDamageTime >= damageCooldown)
+                        {
+                            Debug.Log("Enemy hit player!");
+                            // player.TakeDamage(damageToPlayer);
+                            lastDamageTime = Time.time;
+                        }
                     }
                 }
             }
 
-            // Update the enemy's position in the collision manager
             enemyMatrices[i] = Matrix4x4.TRS(currentPosition, Quaternion.identity, Vector3.one * enemySize);
             CollisionManager.Instance.UpdateMatrix(enemyColliderIds[i], enemyMatrices[i]);
         }
     }
 
-    void OnRenderObject()
+    private void OnRenderObject()
     {
-        // Render all enemies
-        for (int i = 0; i < enemyMatrices.Count; i++)
+        foreach (var matrix in enemyMatrices)
         {
-            Graphics.DrawMesh(enemyMesh, enemyMatrices[i], enemyMaterial, 0);
+            Graphics.DrawMesh(enemyMesh, matrix, enemyMaterial, 0);
         }
     }
 }
